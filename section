@@ -1,0 +1,148 @@
+create database airport;
+go
+
+use airport;
+go
+
+create table flights (
+    flightid int primary key identity(1,1),
+    flightnumber varchar(10) not null,
+    departurecity varchar(50) not null,
+    arrivalcity varchar(50) not null,
+    departuredatetime datetime not null,
+    arrivaldatetime datetime not null,
+    duration time not null,
+    totalseats int not null,
+    businessseats int not null,
+    economyseats int not null
+);
+go
+
+create table passengers (
+    passengerid int primary key identity(1,1),
+    firstname varchar(50) not null,
+    lastname varchar(50) not null,
+    passportnumber varchar(20) not null
+);
+go
+
+create table tickets (
+    ticketid int primary key identity(1,1),
+    flightid int,
+    passengerid int,
+    class varchar(10) check (class in ('business', 'economy')) not null,
+    price decimal(10, 2) not null,
+    foreign key (flightid) references flights(flightid),
+    foreign key (passengerid) references passengers(passengerid)
+);
+go
+
+create trigger updateseatsafterticketsale
+on tickets
+after insert
+as
+begin
+    update f
+    set businessseats = businessseats - i.seats_taken
+    from flights f
+    join (
+        select flightid, count(*) as seats_taken
+        from inserted
+        where class = 'business'
+        group by flightid
+    ) i on f.flightid = i.flightid;
+
+    update f
+    set economyseats = economyseats - i.seats_taken
+    from flights f
+    join (
+        select flightid, count(*) as seats_taken
+        from inserted
+        where class = 'economy'
+        group by flightid
+    ) i on f.flightid = i.flightid;
+end;
+go
+
+create trigger checkseatsbeforeticketsale
+on tickets
+for insert
+as
+begin
+    if exists (
+        select 1
+        from inserted i
+        join flights f on i.flightid = f.flightid
+        where (i.class = 'business' and f.businessseats <= 0)
+           or (i.class = 'economy' and f.economyseats <= 0)
+    )
+    begin
+        raiserror('no available seats in the selected class', 16, 1);
+        rollback transaction;
+    end;
+end;
+go
+
+select *
+from flights
+where arrivalcity = 'київ' and cast(departuredatetime as date) = '2023-10-15'
+order by departuredatetime;
+go
+
+select *
+from flights
+order by duration desc
+offset 0 rows fetch next 1 rows only;
+go
+
+select *
+from flights
+where duration > '02:00:00';
+go
+
+select arrivalcity, count(*) as numberofflights
+from flights
+group by arrivalcity;
+go
+
+select top 1 arrivalcity, count(*) as numberofflights
+from flights
+group by arrivalcity
+order by numberofflights desc;
+go
+
+select arrivalcity, count(*) as numberofflights
+from flights
+where month(departuredatetime) = 10 and year(departuredatetime) = 2023
+group by arrivalcity;
+go
+
+select count(*) as totalflights
+from flights
+where month(departuredatetime) = 10 and year(departuredatetime) = 2023;
+go
+
+select f.*
+from flights f
+left join tickets t on f.flightid = t.flightid and t.class = 'business'
+where cast(f.departuredatetime as date) = cast(getdate() as date)
+group by f.flightid, f.flightnumber, f.departurecity, f.arrivalcity, f.departuredatetime, f.arrivaldatetime, f.duration, f.totalseats, f.businessseats, f.economyseats
+having count(t.ticketid) < f.businessseats;
+go
+
+select count(*) as totalticketssold, sum(t.price) as totalrevenue
+from tickets t
+join flights f on t.flightid = f.flightid
+where cast(f.departuredatetime as date) = '2023-10-15';
+go
+
+select f.flightnumber, count(t.ticketid) as ticketssold
+from flights f
+left join tickets t on f.flightid = t.flightid
+where cast(f.departuredatetime as date) = '2023-10-15'
+group by f.flightnumber;
+go
+
+select flightnumber, arrivalcity
+from flights;
+go
